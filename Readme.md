@@ -2,6 +2,10 @@
 
 A **pnpm monorepo** of Node.js **microservices** for a vehicle rental product: vehicles, bookings, payments, pricing, notifications, invoices, and an API **gateway** that fronts the public HTTP API.
 
+**Deeper detail:**  
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — microservice roles, scaling (including high traffic / lakhs of users), technology stack, and design notes.  
+- [docs/FLOWS.md](docs/FLOWS.md) — **how requests and events flow** (gateway, booking, pricing snapshot, payment → Kafka → invoice/notifications).
+
 ## What’s in the repo
 
 | Area | Services (examples) |
