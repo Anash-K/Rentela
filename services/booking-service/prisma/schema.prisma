@@ -1,0 +1,115 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  PREBOOKED
+  PICKED_UP
+  ACTIVE
+  OVERDUE
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum PaymentStatus {
+  UNPAID
+  PARTIAL
+  PAID
+  REFUNDED
+}
+
+model Booking {
+  id                 String        @id @default(uuid())
+
+  userId             String        // auth-service user id
+  vehicleId          String        // vehicle-service vehicle id
+
+  pickupBranchId     String
+  returnBranchId     String?
+
+  startAt            DateTime
+  endAt              DateTime
+  pickupTime         DateTime?
+  dropTime           DateTime?
+  actualStartTime    DateTime?
+  actualEndTime      DateTime?
+
+  isPreBooked        Boolean       @default(false)
+
+  status             BookingStatus @default(PENDING)
+  paymentStatus      PaymentStatus @default(UNPAID)
+
+  baseAmount         Decimal       @db.Decimal(10,2)
+  extraAmount        Decimal       @default(0) @db.Decimal(10,2)
+  discountAmount     Decimal       @default(0) @db.Decimal(10,2)
+  totalAmount        Decimal       @db.Decimal(10,2)
+  platformFee        Decimal       @default(0) @db.Decimal(10,2)
+  serviceFee         Decimal       @default(0) @db.Decimal(10,2)
+  taxAmount          Decimal       @default(0) @db.Decimal(10,2)
+  pricingRuleId      String?
+  /** Immutable snapshot from pricing-service at booking creation (never recalculate for billing). */
+  pricingSnapshot    Json?
+  pricingVersionLabel String?
+  couponCode         String?
+
+  securityDeposit    Decimal?      @db.Decimal(10,2)
+
+  pickedUpAt         DateTime?
+  returnedAt         DateTime?
+
+  startOdometerKm    Float?
+  endOdometerKm      Float?
+  distanceKm         Float?
+  includedKm         Float?
+  extraPerKm         Float?
+  extraPerHour       Float?
+
+  cancellationReason String?
+  cancelledAt        DateTime?
+  cancelledBy        String?
+
+  notes              String?
+
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  events             BookingEvent[]
+  extensions         BookingExtension[]
+}
+
+model BookingEvent {
+  id                 String   @id @default(uuid())
+  bookingId          String
+
+  eventType          String
+  message            String?
+
+  createdBy          String?   // user/admin id
+  createdAt          DateTime  @default(now())
+
+  booking            Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+}
+
+model BookingExtension {
+  id                 String    @id @default(uuid())
+  bookingId          String
+
+  oldEndAt           DateTime
+  newEndAt           DateTime
+
+  extraAmount        Decimal   @db.Decimal(10,2)
+
+  approvedBy         String?
+  createdAt          DateTime  @default(now())
+
+  booking            Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+}

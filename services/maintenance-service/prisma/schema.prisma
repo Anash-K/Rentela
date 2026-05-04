@@ -1,0 +1,74 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+  CANCELLED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum MaintenanceType {
+  BREAKDOWN
+  PERIODIC_SERVICE
+  BATTERY_SERVICE
+  TYRE_REPLACEMENT
+  ACCIDENT
+  CLEANING
+  OTHER
+}
+
+model MaintenanceTicket {
+  id String @id @default(uuid())
+
+  vehicleId  String // vehicle-service id
+  branchId   String?
+  reportedBy String? // user/admin/staff id
+
+  type     MaintenanceType
+  priority Priority        @default(MEDIUM)
+  status   TicketStatus    @default(OPEN)
+
+  title       String
+  description String?
+
+  estimatedCost Decimal? @db.Decimal(10, 2)
+  actualCost    Decimal? @db.Decimal(10, 2)
+
+  assignedTo String? // mechanic/staff id
+
+  openedAt   DateTime  @default(now())
+  startedAt  DateTime?
+  resolvedAt DateTime?
+  closedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  logs MaintenanceLog[]
+}
+
+model MaintenanceLog {
+  id String @id @default(uuid())
+
+  ticketId  String
+  message   String
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  ticket MaintenanceTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+}

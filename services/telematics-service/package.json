@@ -1,0 +1,41 @@
+{
+  "name": "telematics-service",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "pm2:start": "pm2 start src/server.js --name telematics-service",
+    "pm2:stop": "pm2 stop telematics-service",
+    "pm2:restart": "pm2 restart telematics-service",
+    "pm2:delete": "pm2 delete telematics-service",
+    "pm2:list": "pm2 list",
+    "pm2:save": "pm2 save",
+    "pm2:startup": "pm2 startup"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.20.0",
+  "dependencies": {
+    "@prisma/client": "^6.19.3",
+    "axios": "^1.15.2",
+    "compression": "^1.8.1",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "helmet": "^8.1.0",
+    "ioredis": "^5.10.1",
+    "kafkajs": "^2.2.4",
+    "pg": "^8.20.0",
+    "pino": "^10.3.1",
+    "pino-http": "^11.0.0",
+    "prisma": "^6.19.3",
+    "prom-client": "^15.1.3",
+    "socket.io": "^4.8.3",
+    "zod": "^4.3.6"
+  },
+  "type": "module"
+}

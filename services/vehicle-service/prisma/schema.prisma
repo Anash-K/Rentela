@@ -1,0 +1,207 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum VehicleStatus {
+  AVAILABLE
+  BOOKED
+  IN_USE
+  UNDER_MAINTENANCE
+  IN_TRANSIT
+  RETIRED
+  INACTIVE
+}
+
+enum FuelType {
+  PETROL
+  DIESEL
+  ELECTRIC
+  HYBRID
+}
+
+enum TransmissionType {
+  MANUAL
+  AUTOMATIC
+}
+
+enum DocumentType {
+  RC
+  INSURANCE
+  PUC
+  FITNESS
+  PERMIT
+}
+
+enum TransferStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  IN_TRANSIT
+  RECEIVED
+  COMPLETED
+  CANCELLED
+}
+
+enum VerificationStatus {
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+model Branch {
+  id        String   @id @default(uuid())
+  name      String
+  code      String   @unique
+  address   String
+  city      String
+  state     String?
+  pincode   String?
+  latitude  Float?
+  longitude Float?
+  contactNo String?
+  email     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vehiclesFrom Vehicle[]         @relation("CurrentBranch")
+  transfersOut VehicleTransfer[] @relation("FromBranch")
+  transfersIn  VehicleTransfer[] @relation("ToBranch")
+}
+
+model VehicleCategory {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+
+  vehicles Vehicle[]
+}
+
+model Vehicle {
+  id             String  @id @default(uuid())
+  vendorId       String?
+  categoryId     String
+  branchId       String
+  registrationNo String  @unique
+
+  brand   String
+  model   String
+  variant String?
+
+  year  Int?
+  color String?
+  seats Int?
+
+  /** BIKE | CAR | ERICKSHAW | TEMPO | LOADER — used by pricing-service auto classification */
+  vehicleKind    String? @db.VarChar(16)
+  engineCC       Int?
+  loadCapacityKg Int?
+
+  fuelType     FuelType
+  transmission TransmissionType?
+
+  batteryCapacity Float?
+  rangeKm         Float?
+
+  odoMeterKm Float @default(0)
+
+  status VehicleStatus @default(AVAILABLE)
+
+  basePrice       Decimal  @db.Decimal(10, 2)
+  securityDeposit Decimal? @db.Decimal(10, 2)
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  category VehicleCategory @relation(fields: [categoryId], references: [id])
+  branch   Branch          @relation("CurrentBranch", fields: [branchId], references: [id])
+
+  documents VehicleDocument[]
+  transfers VehicleTransfer[]
+  telemetry VehicleTelemetry?
+}
+
+model VehicleTelemetry {
+  id        String @id @default(uuid())
+  vehicleId String @unique
+
+  batteryPercent Float?
+  charging       Boolean @default(false)
+
+  latitude  Float?
+  longitude Float?
+
+  speedKm Float?
+
+  odoMeterKm Float?
+
+  isOnline Boolean @default(false)
+
+  lastSyncedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([batteryPercent])
+  @@index([isOnline])
+}
+
+model VehicleDocument {
+  id        String @id @default(uuid())
+  vehicleId String
+
+  type       DocumentType
+  fileUrl    String
+  documentNo String?
+
+  issueDate  DateTime?
+  expiryDate DateTime?
+
+  status VerificationStatus @default(UNDER_REVIEW)
+
+  uploadedBy      String?
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  rejectionReason String?
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId])
+  @@index([status])
+  @@index([expiryDate])
+}
+
+model VehicleTransfer {
+  id           String @id @default(uuid())
+  vehicleId    String
+  fromBranchId String
+  toBranchId   String
+
+  requestedBy String
+  approvedBy  String?
+  receivedBy  String?
+
+  status      TransferStatus @default(REQUESTED)
+  requestedAt DateTime       @default(now())
+  completedAt DateTime?
+
+  vehicle    Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  fromBranch Branch  @relation("FromBranch", fields: [fromBranchId], references: [id])
+  toBranch   Branch  @relation("ToBranch", fields: [toBranchId], references: [id])
+}

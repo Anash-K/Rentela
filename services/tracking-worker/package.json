@@ -1,0 +1,35 @@
+{
+  "name": "tracking-worker",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "nodemon src/worker.js",
+    "start": "node src/worker.js",
+    "pm2:start": "pm2 start src/worker.js --name tracking-worker",
+    "pm2:stop": "pm2 stop tracking-worker",
+    "pm2:restart": "pm2 restart tracking-worker",
+    "pm2:delete": "pm2 delete tracking-worker",
+    "pm2:list": "pm2 list",
+    "pm2:save": "pm2 save",
+    "pm2:startup": "pm2 startup"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.20.0",
+  "dependencies": {
+    "@prisma/client": "^6.19.3",
+    "@temporalio/client": "^1.16.1",
+    "@temporalio/worker": "^1.16.1",
+    "@temporalio/workflow": "^1.16.1",
+    "axios": "^1.15.2",
+    "dotenv": "^17.4.2",
+    "ioredis": "^5.10.1",
+    "kafkajs": "^2.2.4",
+    "nodemon": "^3.1.14",
+    "prisma": "^6.19.3"
+  }
+}

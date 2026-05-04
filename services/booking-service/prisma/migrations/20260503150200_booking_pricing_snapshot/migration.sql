@@ -1,0 +1,2 @@
+ALTER TABLE "Booking" ADD COLUMN IF NOT EXISTS "pricingSnapshot" JSONB,
+ADD COLUMN IF NOT EXISTS "pricingVersionLabel" TEXT;

@@ -1,0 +1,205 @@
+# ======================================================
+# infra/docker-compose.yml
+# LOCAL INFRASTRUCTURE FOR DEVELOPMENT
+# ======================================================
+
+services:
+  # ----------------------------------------------------
+  # PostgreSQL
+  # ----------------------------------------------------
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: rental-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: rental_platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - rental-net
+
+  # ----------------------------------------------------
+  # PgBouncer
+  # ----------------------------------------------------
+  pgbouncer:
+    image: edoburu/pgbouncer
+    container_name: rental-pgbouncer
+    restart: unless-stopped
+    ports:
+      - "6432:6432"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: password
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 1000
+      DEFAULT_POOL_SIZE: 20
+    depends_on:
+      - postgres
+    networks:
+      - rental-net
+
+  # ----------------------------------------------------
+  # Redis
+  # ----------------------------------------------------
+  redis:
+    image: redis:7
+    container_name: rental-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - rental-net
+
+  # ----------------------------------------------------
+  # RabbitMQ
+  # ----------------------------------------------------
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rental-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin123
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - rental-net
+
+  # ----------------------------------------------------
+  # Zookeeper
+  # ----------------------------------------------------
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: rental-zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - rental-net
+
+  # ----------------------------------------------------
+  # Kafka
+  # ----------------------------------------------------
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: rental-kafka
+    restart: unless-stopped
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    ports:
+      - "9092:9092"
+    networks:
+      - rental-net
+
+  # ----------------------------------------------------
+  # Elasticsearch
+  # ----------------------------------------------------
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    container_name: rental-elasticsearch
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms1g -Xmx1g"
+    ports:
+      - "9200:9200"
+    volumes:
+      - elastic_data:/usr/share/elasticsearch/data
+    networks:
+      - rental-net
+
+  # ----------------------------------------------------
+  # Kibana
+  # ----------------------------------------------------
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.13.4
+    container_name: rental-kibana
+    restart: unless-stopped
+    depends_on:
+      - elasticsearch
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    networks:
+      - rental-net
+
+  # ----------------------------------------------------
+  # SigNoz Collector (optional)
+  # ----------------------------------------------------
+  signoz-otel-collector:
+    image: signoz/signoz-otel-collector:0.88.8
+    container_name: rental-signoz-collector
+    restart: unless-stopped
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    networks:
+      - rental-net
+
+  # ----------------------------------------------------
+  # Temporal
+  # ----------------------------------------------------
+  temporal:
+    image: temporalio/auto-setup:latest
+    container_name: rental-temporal
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: postgres
+      POSTGRES_PWD: password
+      POSTGRES_SEEDS: postgres
+    ports:
+      - "7233:7233"
+    networks:
+      - rental-net
+
+  # ----------------------------------------------------
+  # Temporal UI
+  # ----------------------------------------------------
+  temporal-ui:
+    image: temporalio/ui:latest
+    container_name: rental-temporal-ui
+    restart: unless-stopped
+    depends_on:
+      - temporal
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+    ports:
+      - "8233:8080"
+    networks:
+      - rental-net
+
+networks:
+  rental-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+  elastic_data:

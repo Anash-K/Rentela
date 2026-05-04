@@ -1,0 +1,61 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AlertSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+model DashboardAlert {
+  id String @id @default(uuid())
+
+  title   String
+  message String
+
+  severity AlertSeverity @default(INFO)
+
+  branchId      String?
+  sourceService String?
+
+  isResolved Boolean   @default(false)
+  resolvedBy String?
+  resolvedAt DateTime?
+
+  createdAt DateTime @default(now())
+}
+
+model AdminPreference {
+  id String @id @default(uuid())
+
+  userId String @unique
+
+  defaultBranchId String?
+  theme           String?
+  layout          Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model StaffTask {
+  id String @id @default(uuid())
+
+  branchId   String?
+  assignedTo String?
+
+  title       String
+  description String?
+
+  status String    @default("OPEN")
+  dueAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

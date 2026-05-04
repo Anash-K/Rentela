@@ -1,0 +1,95 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum DeviceStatus {
+  ONLINE
+  OFFLINE
+  MAINTENANCE
+}
+
+enum AlertType {
+  LOW_BATTERY
+  GEOFENCE_EXIT
+  GEOFENCE_ENTRY
+  OVERSPEED
+  DEVICE_OFFLINE
+  TAMPER_ALERT
+}
+
+model VehicleDevice {
+  id String @id @default(uuid())
+
+  vehicleId       String  @unique
+  imei            String  @unique
+  simNumber       String?
+  firmwareVersion String?
+
+  status DeviceStatus @default(ONLINE)
+
+  installedAt DateTime?
+  lastSeenAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  telemetryLogs TelemetryLog[]
+  alerts        Alert[]
+}
+
+model TelemetryLog {
+  id String @id @default(uuid())
+
+  deviceId String
+
+  latitude  Float
+  longitude Float
+
+  speedKmph      Float?
+  batteryPercent Float?
+  odometerKm     Float?
+
+  ignitionOn Boolean?
+  charging   Boolean?
+
+  recordedAt DateTime @default(now())
+
+  device VehicleDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+}
+
+model Geofence {
+  id   String @id @default(uuid())
+  name String
+
+  centerLat Float
+  centerLng Float
+  radiusM   Float // meters
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Alert {
+  id String @id @default(uuid())
+
+  deviceId String
+  type     AlertType
+
+  title   String
+  message String?
+
+  isResolved Boolean   @default(false)
+  resolvedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  device VehicleDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+}

@@ -1,0 +1,85 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ChannelType {
+  EMAIL
+  SMS
+  PUSH
+  IN_APP
+}
+
+enum NotificationStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model Notification {
+  id String @id @default(uuid())
+
+  userId   String?
+  channel  ChannelType
+  status   NotificationStatus @default(PENDING)
+  priority Priority           @default(MEDIUM)
+
+  eventKey     String?
+  templateCode String?
+
+  subject String?
+  title   String?
+  message String
+
+  recipient String?
+  payload   Json?
+
+  isRead Boolean   @default(false)
+  readAt DateTime?
+
+  scheduledAt DateTime?
+  sentAt      DateTime?
+
+  retryCount    Int     @default(0)
+  failureReason String?
+
+  dedupeKey String? @unique
+
+  actionUrl String?
+  imageUrl  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Template {
+  id String @id @default(uuid())
+
+  code        String  @unique
+  name        String
+  description String?
+
+  channel ChannelType
+
+  subject String?
+  body    String
+
+  locale   String  @default("en")
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

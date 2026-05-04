@@ -1,0 +1,115 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CUSTOMER
+  ADMIN
+  SUPPORT
+  VENDOR
+  BRANCH_MANAGER
+  STAFF
+}
+
+enum DocumentType {
+  DRIVING_LICENSE
+  AADHAAR
+  PAN
+  PASSPORT
+  OTHER
+}
+
+enum VerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum AccountStatus {
+  ACTIVE
+  BLOCKED
+  SUSPENDED
+}
+
+model User {
+  id                String        @id @default(uuid())
+  name              String
+  email             String        @unique
+  phone             String?       @unique
+  passwordHash      String
+  role              UserRole      @default(CUSTOMER)
+  status            AccountStatus @default(ACTIVE)
+
+  isEmailVerified   Boolean       @default(false)
+  isPhoneVerified   Boolean       @default(false)
+
+  avatarUrl         String?
+  branchId          String?       // external branch id from vehicle-service
+  vendorCode        String?       @unique
+
+  failedLoginCount  Int           @default(0)
+  lockedUntil       DateTime?
+
+  lastLoginAt       DateTime?
+  deactivatedAt     DateTime?
+
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  sessions          Session[]
+  documents         UserDocument[]
+  passwordResetTokens PasswordResetToken[]
+}
+
+model Session {
+  id                String   @id @default(uuid())
+  userId            String
+  refreshTokenHash  String   @unique
+
+  userAgent         String?
+  deviceName        String?
+  platform          String?
+  ipAddress         String?
+
+  isRevoked         Boolean  @default(false)
+  revokedAt         DateTime?
+
+  expiresAt         DateTime
+  createdAt         DateTime @default(now())
+
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model UserDocument {
+  id                String             @id @default(uuid())
+  userId            String
+  type              DocumentType
+  fileUrl           String
+  documentNo        String?
+  expiryDate        DateTime?
+
+  status            VerificationStatus @default(PENDING)
+  reviewedBy        String?
+  reviewedAt        DateTime?
+  rejectionReason   String?
+
+  createdAt         DateTime           @default(now())
+
+  user              User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PasswordResetToken {
+  id          String   @id @default(uuid())
+  userId      String
+  tokenHash   String   @unique
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

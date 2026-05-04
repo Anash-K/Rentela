@@ -1,0 +1,62 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MetricPeriod {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+model RevenueMetric {
+  id String @id @default(uuid())
+
+  period     MetricPeriod
+  metricDate DateTime
+
+  branchId     String?
+  totalRevenue Decimal @default(0) @db.Decimal(12, 2)
+  totalRefunds Decimal @default(0) @db.Decimal(12, 2)
+  netRevenue   Decimal @default(0) @db.Decimal(12, 2)
+
+  totalBookings     Int @default(0)
+  completedBookings Int @default(0)
+  cancelledBookings Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model FleetMetric {
+  id String @id @default(uuid())
+
+  period     MetricPeriod
+  metricDate DateTime
+
+  branchId String?
+
+  totalVehicles     Int   @default(0)
+  availableVehicles Int   @default(0)
+  bookedVehicles    Int   @default(0)
+  utilizationPct    Float @default(0)
+
+  createdAt DateTime @default(now())
+}
+
+model CustomerMetric {
+  id String @id @default(uuid())
+
+  period     MetricPeriod
+  metricDate DateTime
+
+  newUsers    Int @default(0)
+  activeUsers Int @default(0)
+  repeatUsers Int @default(0)
+
+  createdAt DateTime @default(now())
+}

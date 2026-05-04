@@ -1,0 +1,71 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MediaJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum VariantType {
+  THUMBNAIL
+  SMALL
+  MEDIUM
+  LARGE
+  WEBP
+  ORIGINAL
+}
+
+model MediaAsset {
+  id String @id @default(uuid())
+
+  fileId    String // storage-service file id
+  ownerType String
+  ownerId   String
+
+  originalUrl String
+  mimeType    String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  variants MediaVariant[]
+}
+
+model MediaVariant {
+  id String @id @default(uuid())
+
+  assetId     String
+  variantType VariantType
+
+  width     Int?
+  height    Int?
+  sizeBytes Int?
+
+  url    String
+  format String?
+
+  createdAt DateTime @default(now())
+
+  asset MediaAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+}
+
+model MediaJob {
+  id String @id @default(uuid())
+
+  fileId String
+  status MediaJobStatus @default(PENDING)
+
+  errorMessage String?
+
+  createdAt   DateTime  @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+}

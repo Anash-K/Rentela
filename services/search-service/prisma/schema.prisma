@@ -1,0 +1,51 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model SearchIndex {
+  id String @id @default(uuid())
+
+  vehicleId String @unique
+  branchId  String
+
+  branchName String
+  city       String
+
+  categoryName String
+  brand        String
+  model        String
+
+  fuelType String
+  seats    Int?
+
+  pricePerHour Decimal? @db.Decimal(10, 2)
+  pricePerDay  Decimal? @db.Decimal(10, 2)
+
+  isAvailable Boolean @default(true)
+  isActive    Boolean @default(true)
+
+  latitude  Float?
+  longitude Float?
+
+  searchableText String
+
+  bookingCount  Int    @default(0)
+  viewCount     Int    @default(0)
+  ratingAvg     Float?
+  priorityScore Float  @default(0)
+
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@index([branchId])
+  @@index([city])
+  @@index([categoryName])
+  @@index([fuelType])
+  @@index([isAvailable])
+  @@index([pricePerHour])
+}
