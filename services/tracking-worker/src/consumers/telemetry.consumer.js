@@ -31,6 +31,41 @@ const MOVING_DISTANCE_M = Math.max(5, Number(process.env.TRIP_MOVING_DISTANCE_M 
 const IDLE_END_SECONDS = Math.max(30, Number(process.env.TRIP_IDLE_END_SECONDS ?? "180"));
 const MAX_JUMP_DISTANCE_M = Math.max(200, Number(process.env.TRIP_MAX_JUMP_DISTANCE_M ?? "5000"));
 const BOOKING_DISTANCE_TTL_SEC = Math.max(3600, Number(process.env.BOOKING_DISTANCE_TTL_SEC ?? "259200"));
+const MAX_TELEMETRY_SPEED_KMPH = Math.max(
+  40,
+  Number(process.env.TELEMETRY_MAX_SPEED_KMPH ?? "160"),
+);
+const MAX_CLOCK_SKEW_SEC = Math.max(
+  5,
+  Number(process.env.TELEMETRY_MAX_CLOCK_SKEW_SEC ?? "120"),
+);
+const MAX_TELEMETRY_AGE_SEC = Math.max(
+  60,
+  Number(process.env.TELEMETRY_MAX_AGE_SEC ?? "900"),
+);
+const DISTANCE_NOISE_FLOOR_M = Math.max(
+  0.5,
+  Number(process.env.TRIP_DISTANCE_NOISE_FLOOR_M ?? "3"),
+);
+const DISTANCE_JITTER_BUFFER_M = Math.max(
+  5,
+  Number(process.env.TRIP_DISTANCE_JITTER_BUFFER_M ?? "20"),
+);
+const GPS_KALMAN_Q = Math.max(1e-8, Number(process.env.GPS_KALMAN_Q ?? "0.000001"));
+const GPS_KALMAN_R = Math.max(1e-8, Number(process.env.GPS_KALMAN_R ?? "0.00005"));
+const GPS_KALMAN_R_MIN = Math.max(
+  1e-8,
+  Number(process.env.GPS_KALMAN_R_MIN ?? String(GPS_KALMAN_R * 0.4)),
+);
+const GPS_KALMAN_R_MAX = Math.max(
+  GPS_KALMAN_R_MIN,
+  Number(process.env.GPS_KALMAN_R_MAX ?? String(GPS_KALMAN_R * 8)),
+);
+const GPS_ADAPTIVE_R_ENABLED = process.env.GPS_ADAPTIVE_R_ENABLED !== "false";
+const GPS_EMA_ALPHA = Math.min(
+  1,
+  Math.max(0, Number(process.env.GPS_EMA_ALPHA ?? "0.35")),
+);
 
 async function filterDedupedAlerts(deviceId, alerts) {
   if (alerts.length === 0) return [];
@@ -72,16 +107,26 @@ function parseJson(value) {
 }
 
 function buildTelemetry(payload) {
+  const speed = toNumber(payload.speedKm ?? payload.speedKmph ?? payload.speed);
+  const battery = toNumber(payload.batteryPercent ?? payload.battery);
   return {
     vehicleId: payload.vehicleId,
     latitude: toNumber(payload.latitude ?? payload.lat),
     longitude: toNumber(payload.longitude ?? payload.lng ?? payload.lon),
-    batteryPercent: toNumber(payload.batteryPercent ?? payload.battery),
-    speedKm: toNumber(payload.speedKm ?? payload.speedKmph ?? payload.speed),
+    batteryPercent:
+      battery == null ? null : Math.max(0, Math.min(100, battery)),
+    speedKm:
+      speed == null ? null : Math.max(0, Math.min(MAX_TELEMETRY_SPEED_KMPH, speed)),
     ignitionOn:
       typeof payload.ignitionOn === "boolean" ? payload.ignitionOn : null,
     charging: typeof payload.charging === "boolean" ? payload.charging : null,
     odometerKm: toNumber(payload.odometerKm ?? payload.odoMeterKm),
+    hdop: toNumber(payload.hdop),
+    gpsAccuracyM: toNumber(
+      payload.gpsAccuracyM ??
+        payload.accuracyM ??
+        payload.horizontalAccuracyM,
+    ),
     recordedAt: parseRecordedAt(payload.recordedAt ?? payload.updatedAt),
     isOnline:
       typeof payload.isOnline === "boolean" ? payload.isOnline : true,
@@ -211,6 +256,93 @@ const ACTIVE_TRIP_KEY = (deviceId) => `trip:active:${deviceId}`;
 const TRIP_LAST_POINT_KEY = (deviceId) => `trip:last:${deviceId}`;
 const TRIP_LAST_MOVEMENT_KEY = (deviceId) => `trip:last-movement:${deviceId}`;
 const BOOKING_DISTANCE_KEY = (bookingId) => `booking:distance:${bookingId}`;
+const GPS_FILTER_STATE_KEY = (deviceId) => `gps:filter:${deviceId}`;
+
+function kalman1D(measurement, state, q = GPS_KALMAN_Q, r = GPS_KALMAN_R) {
+  const hasState =
+    state &&
+    Number.isFinite(state.x) &&
+    Number.isFinite(state.p) &&
+    state.p > 0;
+  let x = hasState ? state.x : measurement;
+  let p = hasState ? state.p : 1;
+  p += q;
+  const k = p / (p + r);
+  x = x + k * (measurement - x);
+  p = (1 - k) * p;
+  return { x, p };
+}
+
+function clamp(v, lo, hi) {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+/**
+ * Adaptive measurement noise:
+ * - higher speed => trust less (more drift/multipath in motion)
+ * - worse hdop / larger GPS accuracy radius => trust less
+ */
+function getAdaptiveKalmanR(telemetry) {
+  if (!GPS_ADAPTIVE_R_ENABLED) return GPS_KALMAN_R;
+
+  const speed = Number.isFinite(telemetry.speedKm) ? telemetry.speedKm : 0;
+  const hdop = Number.isFinite(telemetry.hdop) ? telemetry.hdop : null;
+  const gpsAccuracyM = Number.isFinite(telemetry.gpsAccuracyM)
+    ? telemetry.gpsAccuracyM
+    : null;
+
+  const speedFactor = clamp(speed / 80, 0, 2.5);
+  const hdopFactor = hdop == null ? 0 : clamp((hdop - 1) / 4, 0, 3);
+  const accuracyFactor =
+    gpsAccuracyM == null ? 0 : clamp((gpsAccuracyM - 5) / 20, 0, 4);
+
+  const dynamicR =
+    GPS_KALMAN_R * (1 + speedFactor + hdopFactor + accuracyFactor);
+  return clamp(dynamicR, GPS_KALMAN_R_MIN, GPS_KALMAN_R_MAX);
+}
+
+async function applyGpsSmoothing(deviceId, telemetry) {
+  if (!isValidCoordinate(telemetry.latitude, telemetry.longitude)) {
+    return telemetry;
+  }
+
+  const rawLat = telemetry.latitude;
+  const rawLng = telemetry.longitude;
+  const state = parseJson(await redis.get(GPS_FILTER_STATE_KEY(deviceId)));
+  const adaptiveR = getAdaptiveKalmanR(telemetry);
+
+  const latState = kalman1D(rawLat, state?.lat, GPS_KALMAN_Q, adaptiveR);
+  const lngState = kalman1D(rawLng, state?.lng, GPS_KALMAN_Q, adaptiveR);
+
+  const prevEmaLat = Number.isFinite(state?.emaLat) ? state.emaLat : latState.x;
+  const prevEmaLng = Number.isFinite(state?.emaLng) ? state.emaLng : lngState.x;
+  const emaLat = prevEmaLat + GPS_EMA_ALPHA * (latState.x - prevEmaLat);
+  const emaLng = prevEmaLng + GPS_EMA_ALPHA * (lngState.x - prevEmaLng);
+
+  const smoothed = {
+    ...telemetry,
+    latitude: emaLat,
+    longitude: emaLng,
+    rawLatitude: rawLat,
+    rawLongitude: rawLng,
+  };
+
+  const payload = {
+    lat: { x: latState.x, p: latState.p },
+    lng: { x: lngState.x, p: lngState.p },
+    emaLat,
+    emaLng,
+    updatedAtTs: Date.now(),
+  };
+  await redis.set(
+    GPS_FILTER_STATE_KEY(deviceId),
+    JSON.stringify(payload),
+    "EX",
+    BOOKING_DISTANCE_TTL_SEC,
+  );
+
+  return smoothed;
+}
 
 async function getActiveBooking(vehicleId) {
   return parseJson(await redis.get(ACTIVE_BOOKING_KEY(vehicleId)));
@@ -226,18 +358,51 @@ async function endTrip(deviceId, tripId) {
 }
 
 async function getMovementSnapshot(deviceId, telemetry) {
+  const nowTs = Date.now();
+  const recordedAtTs = new Date(telemetry.recordedAt).getTime();
   const lastPoint = parseJson(await redis.get(TRIP_LAST_POINT_KEY(deviceId)));
   let distanceM = 0;
+  let elapsedSec = 0;
   if (
     lastPoint &&
     isValidCoordinate(lastPoint.lat, lastPoint.lng) &&
     isValidCoordinate(telemetry.latitude, telemetry.longitude)
   ) {
     distanceM = getDistanceMeters(lastPoint.lat, lastPoint.lng, telemetry.latitude, telemetry.longitude);
+    elapsedSec = Math.max(0, (recordedAtTs - Number(lastPoint.recordedAtTs || nowTs)) / 1000);
+    const maxReasonableDistanceM = Math.max(
+      MAX_JUMP_DISTANCE_M,
+      ((MAX_TELEMETRY_SPEED_KMPH + 15) / 3.6) * elapsedSec + DISTANCE_JITTER_BUFFER_M,
+    );
+    if (
+      !Number.isFinite(distanceM) ||
+      distanceM < DISTANCE_NOISE_FLOOR_M ||
+      distanceM > maxReasonableDistanceM
+    ) {
+      distanceM = 0;
+    }
   }
 
   const speed = telemetry.speedKm ?? 0;
   const moving = speed >= MOVING_SPEED_KMPH || distanceM >= MOVING_DISTANCE_M;
+  try {
+    if (isValidCoordinate(telemetry.latitude, telemetry.longitude)) {
+      await redis.set(
+        TRIP_LAST_POINT_KEY(deviceId),
+        JSON.stringify({
+          lat: telemetry.latitude,
+          lng: telemetry.longitude,
+          speedKm: speed,
+          odometerKm: telemetry.odometerKm,
+          recordedAtTs,
+        }),
+        "EX",
+        BOOKING_DISTANCE_TTL_SEC,
+      );
+    }
+  } catch {
+    // Do not fail movement inference on Redis write error.
+  }
   return { moving, distanceM };
 }
 
@@ -258,16 +423,45 @@ async function updateTripDistance(deviceId, bookingId, tripId, telemetry) {
   }
 
   const distM = getDistanceMeters(lastPoint.lat, lastPoint.lng, telemetry.latitude, telemetry.longitude);
+  const nowTs = Date.now();
+  const currentTs = new Date(telemetry.recordedAt).getTime();
+  const lastTs = Number(lastPoint.recordedAtTs || nowTs);
+  const elapsedSec = Math.max(0, (currentTs - lastTs) / 1000);
+  const maxReasonableDistanceM = Math.max(
+    MAX_JUMP_DISTANCE_M,
+    ((MAX_TELEMETRY_SPEED_KMPH + 15) / 3.6) * elapsedSec + DISTANCE_JITTER_BUFFER_M,
+  );
   await redis.set(
     TRIP_LAST_POINT_KEY(deviceId),
-    JSON.stringify({ lat: telemetry.latitude, lng: telemetry.longitude }),
+    JSON.stringify({
+      lat: telemetry.latitude,
+      lng: telemetry.longitude,
+      speedKm: telemetry.speedKm ?? 0,
+      odometerKm: telemetry.odometerKm,
+      recordedAtTs: currentTs,
+    }),
     "EX",
     BOOKING_DISTANCE_TTL_SEC,
   );
 
-  if (!Number.isFinite(distM) || distM <= 0 || distM > MAX_JUMP_DISTANCE_M) return;
+  if (
+    !Number.isFinite(distM) ||
+    distM < DISTANCE_NOISE_FLOOR_M ||
+    distM > maxReasonableDistanceM
+  ) {
+    return;
+  }
 
-  const deltaKm = distM / 1000;
+  const odoKm = Number(telemetry.odometerKm);
+  const lastOdoKm = Number(lastPoint.odometerKm);
+  let deltaKm = distM / 1000;
+  if (Number.isFinite(odoKm) && Number.isFinite(lastOdoKm)) {
+    const odoDelta = odoKm - lastOdoKm;
+    if (odoDelta >= 0 && odoDelta <= maxReasonableDistanceM / 1000) {
+      deltaKm = odoDelta;
+    }
+  }
+  if (!Number.isFinite(deltaKm) || deltaKm <= 0) return;
   await prisma.trip.update({
     where: { id: tripId },
     data: { distanceKm: { increment: deltaKm } },
@@ -310,30 +504,37 @@ export async function startConsumer() {
         return;
       }
 
-      const telemetry = buildTelemetry(payload);
+      const telemetryRaw = buildTelemetry(payload);
+      const now = new Date();
+      const recordedAtTs = telemetryRaw.recordedAt.getTime();
+      const ageSec = (now.getTime() - recordedAtTs) / 1000;
+      if (ageSec > MAX_TELEMETRY_AGE_SEC || ageSec < -MAX_CLOCK_SKEW_SEC) {
+        return;
+      }
 
       const key = `vehicle:${payload.vehicleId}:telemetry`;
-
-      try {
-        await redis.set(key, JSON.stringify(telemetry));
-      } catch {
-        // Redis write errors should not block device and alert persistence.
-      }
 
       try {
         const device = await prisma.vehicleDevice.upsert({
           where: { vehicleId: payload.vehicleId },
           update: {
             lastSeenAt: new Date(),
-            status: telemetry.isOnline ? "ONLINE" : "OFFLINE",
+            status: telemetryRaw.isOnline ? "ONLINE" : "OFFLINE",
           },
           create: {
             vehicleId: payload.vehicleId,
             imei: `imei-${payload.vehicleId}`,
-            status: telemetry.isOnline ? "ONLINE" : "OFFLINE",
+            status: telemetryRaw.isOnline ? "ONLINE" : "OFFLINE",
             lastSeenAt: new Date(),
           },
         });
+        const telemetry = await applyGpsSmoothing(device.id, telemetryRaw);
+
+        try {
+          await redis.set(key, JSON.stringify(telemetry));
+        } catch {
+          // Redis write errors should not block device and alert persistence.
+        }
 
         const telemetryAlerts = detectAlerts(telemetry);
         const geofenceAlerts = await detectGeofenceTransitionAlerts(

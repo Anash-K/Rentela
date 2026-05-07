@@ -27,6 +27,12 @@ enum PaymentStatus {
   REFUNDED
 }
 
+enum SettlementMode {
+  PAY_AT_BOOKING
+  PAY_AFTER_TRIP
+  DEPOSIT_AND_SETTLE
+}
+
 model Booking {
   id                 String        @id @default(uuid())
 
@@ -46,7 +52,18 @@ model Booking {
   isPreBooked        Boolean       @default(false)
 
   status             BookingStatus @default(PENDING)
+  /** When status is PENDING, vehicle is soft-locked until this time (payment / confirm). */
+  holdExpiresAt      DateTime?
   paymentStatus      PaymentStatus @default(UNPAID)
+
+  /** How rental charges are collected: full prepay, post-trip only, or deposit + final settlement. */
+  settlementMode     SettlementMode @default(DEPOSIT_AND_SETTLE)
+  /** Quote total at booking creation (used for prepay targets). */
+  quotedTotalAmount  Decimal?       @db.Decimal(10, 2)
+  /** Sum of successfully applied payments (idempotent via BookingPaymentApplication). */
+  amountPaidCumulative Decimal      @default(0) @db.Decimal(10, 2)
+  /** Final trip total set when booking is COMPLETED (includes extras/extensions). */
+  finalTotalAmount   Decimal?       @db.Decimal(10, 2)
 
   baseAmount         Decimal       @db.Decimal(10,2)
   extraAmount        Decimal       @default(0) @db.Decimal(10,2)
@@ -84,6 +101,21 @@ model Booking {
 
   events             BookingEvent[]
   extensions         BookingExtension[]
+  paymentApplications BookingPaymentApplication[]
+}
+
+/** Idempotent record: each paymentId applied once to a booking (Kafka retry-safe). */
+model BookingPaymentApplication {
+  id        String   @id @default(uuid())
+  bookingId String
+  paymentId String   @unique
+  amount    Decimal  @db.Decimal(10, 2)
+  phase     String
+  createdAt DateTime @default(now())
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
 }
 
 model BookingEvent {

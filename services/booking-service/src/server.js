@@ -5,6 +5,7 @@ import app from "./app.js";
 import { startTripReminderWorker } from "./jobs/tripReminder.worker.js";
 import { disconnectDlqProducer } from "./kafka/dlq.js";
 import { startPaymentCompletedConsumer } from "./kafka/payment-completed.consumer.js";
+import { startHoldExpiryWorker } from "./workers/holdExpiry.worker.js";
 
 const logger = pino({ name: "booking-server" });
 
@@ -13,6 +14,7 @@ const PORT = Number(process.env.PORT || 5004);
 async function bootstrap() {
   let stopKafka = async () => {};
   let stopTripReminders = async () => {};
+  let stopHoldWorker = async () => {};
 
   try {
     stopKafka = await startPaymentCompletedConsumer();
@@ -21,6 +23,7 @@ async function bootstrap() {
   }
 
   stopTripReminders = startTripReminderWorker();
+  stopHoldWorker = startHoldExpiryWorker();
 
   const server = app.listen(PORT, () => {
     logger.info(`Booking service listening on ${PORT}`);
@@ -28,6 +31,7 @@ async function bootstrap() {
 
   const shutdown = async () => {
     await stopTripReminders();
+    await stopHoldWorker();
     await stopKafka();
     await disconnectDlqProducer();
     server.close(() => process.exit(0));

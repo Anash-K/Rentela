@@ -5,6 +5,8 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
+    "dev:all": "concurrently -c auto -n gateway,auth,vehicle,booking,payment,invoice,notify,pricing,telematics,track \"pnpm --filter gateway dev\" \"pnpm --filter auth-service dev\" \"pnpm --filter vehicle-service dev\" \"pnpm --filter booking-service dev\" \"pnpm --filter payment-service dev\" \"pnpm --filter invoice-service dev\" \"pnpm --filter notification-service dev\" \"pnpm --filter pricing-service dev\" \"pnpm --filter telematics-service dev\" \"pnpm --filter tracking-worker dev\"",
+    "infra:up": "docker compose -f infra/docker-compose.yml up -d",
     "test": "echo \"Error: no test specified\" && exit 1",
     "e2e:notification-smoke": "node scripts/e2e-notification-smoke.mjs",
     "e2e:booking-notification": "node scripts/e2e-booking-notification.mjs"

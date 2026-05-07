@@ -6,13 +6,14 @@ import { sendSuccess, throwError } from "../utils/common.js";
 
 export const createBookingPayment = async (req, res, next) => {
   try {
-    const { userId, bookingId, amount, currency, method } = req.body;
+    const { userId, bookingId, amount, currency, method, paymentPhase } = req.body;
     const result = await paymentService.createBookingPayment({
       userId,
       bookingId,
       amount,
       currency,
       method,
+      paymentPhase,
     });
     return sendSuccess(res, result, "Payment initiated", 201);
   } catch (err) {

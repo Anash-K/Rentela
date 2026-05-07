@@ -101,3 +101,15 @@ export const createBookingCheckout = async (req, res, next) => {
     next(err);
   }
 };
+
+export const createBookingPrepayCheckout = async (req, res, next) => {
+  try {
+    const payload = await bookingService.createPrepayCheckoutForBooking(req.params.id, {
+      userId: req.headers["x-user-id"],
+      amount: req.body?.amount,
+    });
+    return sendSuccess(res, payload, "Prepay checkout initiated", 201);
+  } catch (err) {
+    next(err);
+  }
+};

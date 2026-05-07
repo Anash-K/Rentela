@@ -118,17 +118,20 @@ export async function relayPaymentEmittedEvent(paymentId) {
       "payment.completed produced by relay worker",
     );
 
-    await publishBookingNotify({
-      eventType: "FINAL_BILL_READY",
-      userId: pay.userId,
-      bookingId: pay.bookingId,
-      paymentId: pay.id,
-      correlationId,
-      totalAmount: envelope.totalAmount,
-      currency: envelope.billCurrency ?? envelope.currency,
-      message: "Your final bill is ready with this payment",
-      dedupeKey: `booking:${pay.bookingId}:final_bill:${pay.id}`,
-    });
+    const phase = envelope.meta?.paymentPhase ?? "SETTLEMENT";
+    if (phase === "SETTLEMENT") {
+      await publishBookingNotify({
+        eventType: "FINAL_BILL_READY",
+        userId: pay.userId,
+        bookingId: pay.bookingId,
+        paymentId: pay.id,
+        correlationId,
+        totalAmount: envelope.totalAmount,
+        currency: envelope.billCurrency ?? envelope.currency,
+        message: "Your final bill is ready with this payment",
+        dedupeKey: `booking:${pay.bookingId}:final_bill:${pay.id}`,
+      });
+    }
 
     return { ok: true };
   } catch (err) {

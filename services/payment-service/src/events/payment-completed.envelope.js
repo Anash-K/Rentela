@@ -17,6 +17,11 @@ export function buildPaymentCompletedEnvelope({
   const totalAmount =
     bill?.totalAmount != null ? Number(bill.totalAmount) : Number(payment.amount);
 
+  const paymentPhase =
+    payment.metadata?.paymentPhase != null
+      ? String(payment.metadata.paymentPhase)
+      : "SETTLEMENT";
+
   return {
     schemaVersion: PAYMENT_COMPLETED_SCHEMA_VERSION,
     correlationId,
@@ -32,6 +37,8 @@ export function buildPaymentCompletedEnvelope({
     meta: {
       source: "payment-service-relay",
       billFetched: Boolean(bill?.breakdown),
+      paymentPhase,
+      settlement: bill?.settlement ?? null,
       ...(billFetchWarning ? { billFetchWarning } : {}),
     },
   };

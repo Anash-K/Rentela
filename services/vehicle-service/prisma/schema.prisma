@@ -9,6 +9,7 @@ datasource db {
 }
 
 enum VehicleStatus {
+  ONBOARDING
   AVAILABLE
   BOOKED
   IN_USE
@@ -16,6 +17,39 @@ enum VehicleStatus {
   IN_TRANSIT
   RETIRED
   INACTIVE
+}
+
+enum VehicleRequestStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum TrackerStatus {
+  NONE
+  REQUESTED
+  ACKNOWLEDGED
+  INSTALLED
+  TESTING
+  TESTING_FAILED
+  ACTIVE
+  REPLACING
+}
+
+enum ProvisioningStatus {
+  REQUESTED
+  ACKNOWLEDGED
+  INSTALLED
+  FAILED
+  CANCELLED
+  REPLACED
+}
+
+enum TelemetryTestStatus {
+  PENDING
+  PASSED
+  FAILED
 }
 
 enum FuelType {
@@ -113,7 +147,17 @@ model Vehicle {
 
   odoMeterKm Float @default(0)
 
-  status VehicleStatus @default(AVAILABLE)
+  status VehicleStatus @default(ONBOARDING)
+
+  /** Sub-pipeline for telematics readiness; orthogonal to booking-availability `status`. */
+  trackerStatus       TrackerStatus @default(NONE)
+  deviceId            String?
+  /** Latest DeviceProvisioning row driving lifecycle (back-link). */
+  currentProvisioningId String?
+  /** When ops/admin marked vehicle fully operational (telemetry validated). */
+  operationalReadyAt  DateTime?
+  /** Back-link to the originating onboarding request. */
+  onboardingRequestId String? @unique
 
   basePrice       Decimal  @db.Decimal(10, 2)
   securityDeposit Decimal? @db.Decimal(10, 2)
@@ -126,9 +170,15 @@ model Vehicle {
   category VehicleCategory @relation(fields: [categoryId], references: [id])
   branch   Branch          @relation("CurrentBranch", fields: [branchId], references: [id])
 
-  documents VehicleDocument[]
-  transfers VehicleTransfer[]
-  telemetry VehicleTelemetry?
+  documents       VehicleDocument[]
+  transfers       VehicleTransfer[]
+  telemetry       VehicleTelemetry?
+  onboardingReq   VehicleRequest?      @relation("ApprovedRequest")
+  provisionings   DeviceProvisioning[]
+  telemetryTests  VehicleTelemetryTest[]
+
+  @@index([status])
+  @@index([trackerStatus])
 }
 
 model VehicleTelemetry {
@@ -204,4 +254,153 @@ model VehicleTransfer {
   vehicle    Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
   fromBranch Branch  @relation("FromBranch", fields: [fromBranchId], references: [id])
   toBranch   Branch  @relation("ToBranch", fields: [toBranchId], references: [id])
+}
+
+/**
+ * Onboarding request raised by vendor / ops / branch admin BEFORE a Vehicle exists.
+ * Approval is the only path that creates a real Vehicle row + initial DeviceProvisioning.
+ */
+model VehicleRequest {
+  id String @id @default(uuid())
+
+  vendorId   String?
+  branchId   String
+  categoryId String
+
+  registrationNo String
+  brand          String
+  model          String
+  variant        String?
+
+  year  Int?
+  color String?
+  seats Int?
+
+  vehicleKind    String? @db.VarChar(16)
+  engineCC       Int?
+  loadCapacityKg Int?
+
+  fuelType     FuelType
+  transmission TransmissionType?
+
+  batteryCapacity Float?
+  rangeKm         Float?
+
+  odoMeterKm Float @default(0)
+
+  basePrice       Decimal  @db.Decimal(10, 2)
+  securityDeposit Decimal? @db.Decimal(10, 2)
+
+  /** Snapshot of submitted document references / urls (verified during approval). */
+  documentRefs Json?
+
+  status          VehicleRequestStatus @default(PENDING_APPROVAL)
+  submittedBy     String?
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  rejectionReason String?
+  notes           String?
+
+  /** Populated when admin approves; one approved request → exactly one Vehicle. */
+  vehicleId String?  @unique
+  vehicle   Vehicle? @relation("ApprovedRequest", fields: [vehicleId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([branchId, status])
+  @@index([registrationNo])
+}
+
+/**
+ * Tracker provisioning record (one per attempt).
+ * Idempotent webhook ingestion via vendorRequestId.
+ */
+model DeviceProvisioning {
+  id        String  @id @default(uuid())
+  vehicleId String
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  /** Logical vendor name (e.g. MAPMYINDIA) — keeps service vendor-agnostic. */
+  vendorName String @default("MAPMYINDIA")
+  /** ID returned by the vendor at request time — webhook uses this to tie back. */
+  vendorRequestId String? @unique
+
+  status        ProvisioningStatus @default(REQUESTED)
+  attemptNumber Int                @default(1)
+
+  /** Populated only after webhook reports INSTALLED. */
+  deviceId  String?
+  imei      String?
+  simNumber String?
+
+  requestPayload  Json?
+  responsePayload Json?
+  webhookPayload  Json?
+
+  failureReason String?
+
+  requestedBy String?
+
+  requestedAt    DateTime  @default(now())
+  acknowledgedAt DateTime?
+  installedAt    DateTime?
+  failedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vehicleId, status])
+  @@index([status, requestedAt])
+}
+
+/**
+ * Ops field test report — telemetry must pass before vehicle goes live.
+ */
+model VehicleTelemetryTest {
+  id              String  @id @default(uuid())
+  vehicleId       String
+  vehicle         Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  provisioningId  String?
+
+  status TelemetryTestStatus @default(PENDING)
+
+  gpsAccuracyOk     Boolean?
+  routeAccurate     Boolean?
+  distanceRealistic Boolean?
+  speedCorrect      Boolean?
+  ignitionDetected  Boolean?
+  odometerOk        Boolean?
+  telemetryDelaySec Int?
+
+  failureReasons String[] @default([])
+  notes          String?
+
+  testedBy   String?
+  testedAt   DateTime?
+  reviewedBy String?
+  reviewedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([vehicleId, status])
+  @@index([status, createdAt])
+}
+
+/**
+ * Webhook deduplication ledger (idempotent vendor callbacks).
+ */
+model VendorWebhookEvent {
+  id              String   @id @default(uuid())
+  vendor          String
+  externalId      String
+  status          String   @default("RECEIVED")
+  rejectionReason String?
+  payload         Json?
+  createdAt       DateTime @default(now())
+
+  @@unique([vendor, externalId])
+  @@index([vendor, createdAt])
 }

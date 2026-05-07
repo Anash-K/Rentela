@@ -25,10 +25,7 @@ export async function processPaymentCompletedMessage(rawPayload) {
 
   log.info({ status: "apply_payment_completed" }, "Applying payment.completed envelope");
 
-  await bookingService.updateBookingPaymentStatus(envelope.bookingId, {
-    paymentStatus: "PAID",
-    paymentId: envelope.paymentId,
-  });
+  await bookingService.applyPaymentCompletedEnvelope(envelope);
 
-  log.info({ status: "booking_payment_status_updated" }, "Booking marked PAID from payment.completed");
+  log.info({ status: "booking_ledger_applied" }, "Booking ledger updated from payment.completed");
 }

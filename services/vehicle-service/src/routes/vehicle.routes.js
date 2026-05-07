@@ -38,7 +38,15 @@ import { syncTracking } from "../controllers/tracking.controller.js";
 
 import { getTelemetry } from "../controllers/telemetry.controller.js";
 
+import onboardingRoutes from "./onboarding.routes.js";
+
 const router = Router();
+
+// -----------------------------------------------------
+// Onboarding pipeline: vehicle-requests, provisioning, telemetry tests, activation, vendor webhook.
+// Registered before /:id routes so explicit subpaths win.
+// -----------------------------------------------------
+router.use("/", onboardingRoutes);
 
 // -----------------------------------------------------
 // Health

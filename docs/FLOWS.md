@@ -160,4 +160,5 @@ If **Kafka** or a consumer is temporarily down, relay/configured **retry** paths
 ## Related docs
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — services list, scaling, tech stack.  
+- [PRICING-SERVICE.md](PRICING-SERVICE.md) — pricing-service step-by-step.  
 - [Readme.md](../Readme.md) — install, Docker, migrations, ports, E2E scripts.

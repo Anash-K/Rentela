@@ -60,7 +60,10 @@ export const createVehicle = async (data) => {
       basePrice: data.basePrice,
       securityDeposit: data.securityDeposit,
 
-      status: data.status ?? "AVAILABLE",
+      // Direct create defaults to ONBOARDING — admins must explicitly pass status to skip the
+      // onboarding pipeline (e.g. legacy migrations). Industry-grade fleets should prefer the
+      // POST /vehicle-requests flow which guarantees tracker provisioning + ops validation.
+      status: data.status ?? "ONBOARDING",
       isActive: data.isActive ?? true,
     },
   });
@@ -211,7 +214,7 @@ export const deleteVehicle = async (id) => {
     where: { id },
     data: {
       isActive: false,
-      status: "UNAVAILABLE",
+      status: "INACTIVE",
     },
   });
 

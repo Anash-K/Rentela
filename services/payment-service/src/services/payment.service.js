@@ -45,20 +45,28 @@ async function findPaymentForWebhook(tx, { gatewayPaymentId, gatewayOrderId, pay
   });
 }
 
+function normalizeBookingPaymentPhase(raw) {
+  const allowed = new Set(["PREPAY", "SETTLEMENT", "EXTENSION"]);
+  if (typeof raw === "string" && allowed.has(raw)) return raw;
+  return "SETTLEMENT";
+}
+
 export async function createBookingPayment({
   userId,
   bookingId,
   amount,
   currency = "INR",
   method = "CARD",
+  paymentPhase: paymentPhaseRaw,
 }) {
   if (!userId || !bookingId) throwError("userId and bookingId required", 400);
   const amt = Number(amount);
   if (!Number.isFinite(amt) || amt <= 0) throwError("Invalid amount", 400);
 
+  const paymentPhase = normalizeBookingPaymentPhase(paymentPhaseRaw);
   const providerKey = PAYMENT_PROVIDER || "mock";
 
-  const existing = await prisma.payment.findFirst({
+  const pending = await prisma.payment.findMany({
     where: {
       bookingId,
       type: "BOOKING",
@@ -66,8 +74,13 @@ export async function createBookingPayment({
       gatewayProvider: providerKey,
     },
     orderBy: { createdAt: "desc" },
+    take: 20,
   });
 
+  const phaseOf = (p) =>
+    p.metadata?.paymentPhase != null ? String(p.metadata.paymentPhase) : "SETTLEMENT";
+
+  const existing = pending.find((p) => phaseOf(p) === paymentPhase);
   if (existing) {
     return {
       payment: existing,
@@ -83,7 +96,8 @@ export async function createBookingPayment({
       metadata: {
         bookingId,
         userId,
-        description: `Booking rental — ${bookingId}`,
+        paymentPhase,
+        description: `Booking rental — ${bookingId} (${paymentPhase})`,
       },
     });
   } catch (e) {
@@ -106,6 +120,7 @@ export async function createBookingPayment({
         gatewayPaymentId: checkout.gatewayPaymentId ?? null,
         gatewayResponse: checkout.raw ?? null,
         metadata: {
+          paymentPhase,
           checkout: {
             paymentUrl: checkout.paymentUrl ?? null,
             publicKeyId: checkout.publicKeyId ?? null,
@@ -125,7 +140,7 @@ export async function createBookingPayment({
     };
   } catch (e) {
     if (isUniqueViolation(e)) {
-      const dup = await prisma.payment.findFirst({
+      const again = await prisma.payment.findMany({
         where: {
           bookingId,
           type: "BOOKING",
@@ -133,7 +148,9 @@ export async function createBookingPayment({
           gatewayProvider: providerKey,
         },
         orderBy: { createdAt: "desc" },
+        take: 20,
       });
+      const dup = again.find((p) => phaseOf(p) === paymentPhase);
       if (dup) {
         return {
           payment: dup,

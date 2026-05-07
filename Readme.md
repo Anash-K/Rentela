@@ -4,7 +4,8 @@ A **pnpm monorepo** of Node.js **microservices** for a vehicle rental product: v
 
 **Deeper detail:**  
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — microservice roles, scaling (including high traffic / lakhs of users), technology stack, and design notes.  
-- [docs/FLOWS.md](docs/FLOWS.md) — **how requests and events flow** (gateway, booking, pricing snapshot, payment → Kafka → invoice/notifications).
+- [docs/FLOWS.md](docs/FLOWS.md) — **how requests and events flow** (gateway, booking, pricing snapshot, payment → Kafka → invoice/notifications).  
+- [docs/PRICING-SERVICE.md](docs/PRICING-SERVICE.md) — **pricing-service only**: rules DB, tier classification, quote math, snapshot, APIs, admin.
 
 ## What’s in the repo
 
@@ -91,6 +92,10 @@ cd services/gateway && pnpm dev
 
 Point services at the same **Redis** and **Kafka** URLs so notifications and payment completion propagate correctly.
 
+### Booking inventory hold
+
+New bookings default to **`PENDING`** with a time-boxed **`holdExpiresAt`** (default **15 minutes** via `BOOKING_HOLD_MINUTES`) so the vehicle cannot be double-booked by another overlapping window. **BullMQ** runs a **delayed job** per hold to cancel if unpaid (no cron). When **`payment.completed`** sets **`PAID`**, the booking becomes **`CONFIRMED`** and the hold job is removed. B2B or tests can pass **`immediateConfirm: true`** on `POST /bookings` to skip the hold, or set **`BOOKING_HOLD_ENABLED=false`** to restore legacy behavior. See `services/booking-service/src/config/hold.js` and `src/queues/holdExpiry.queue.js`.
+
 ### Gateway as single entry
 
 Clients usually call **only** the gateway, e.g. `http://localhost:5000`, which proxies paths such as `/bookings`, `/vehicles`, `/payments`, `/pricing`, `/notifications` (see `services/gateway/src/routes/index.js`).
@@ -107,7 +112,26 @@ Full booking → mock payment → notification checks need Kafka, payment relay,
 
 ## Pricing admin API
 
-`pricing-service` exposes **`/admin/v1/*`** routes protected by **`PRICING_ADMIN_API_KEY`** (≥ 16 characters). Through the gateway: `POST http://localhost:5000/pricing/admin/v1/...` with header `x-pricing-admin-key`.
+`pricing-service` exposes **`/admin/v1/*`** behind **`PRICING_ADMIN_API_KEY`** (≥ 16 characters) in `services/pricing-service/.env`. See `services/pricing-service/.env.example`.
+
+**Auth (either is fine):**
+
+- Header: **`x-pricing-admin-key: <your key>`**
+- Or: **`Authorization: Bearer <your key>`**
+
+**Test URLs** (gateway `PORT` defaults to **5000**; pricing-service defaults to **5015** — use your actual `PORT` if overridden):
+
+| Where | List rule versions (GET) |
+|--------|---------------------------|
+| Direct to pricing-service | `http://localhost:5015/admin/v1/rule-versions` |
+| Via gateway | `http://localhost:5000/pricing/admin/v1/rule-versions` |
+
+**Example (replace the key if yours differs):**
+
+```bash
+curl -sS -H 'x-pricing-admin-key: dev-rental-pricing-admin-key-2026' \
+  http://localhost:5015/admin/v1/rule-versions
+```
 
 ## Environment variables
 

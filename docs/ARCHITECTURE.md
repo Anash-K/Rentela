@@ -102,6 +102,7 @@ The platform is a **distributed system**: each service owns a bounded context, i
 
 - **Runbook / setup:** root **Readme.md** — install, Docker infra, Prisma, ports, E2E scripts.
 - **End-to-end flows:** [FLOWS.md](FLOWS.md) — gateway, booking, pricing snapshot, payment → Kafka, notifications.
+- **Pricing deep dive:** [PRICING-SERVICE.md](PRICING-SERVICE.md) — rules, tiers, quote steps, snapshot, admin APIs.
 - **Pricing admin:** set **`PRICING_ADMIN_API_KEY`** and use `/admin/v1/...` on **pricing-service** (see Readme).
 
 ---

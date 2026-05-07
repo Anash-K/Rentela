@@ -42,6 +42,8 @@ export async function processPaymentCompletedMessage(rawPayload) {
     return existing;
   }
 
+  const phase = envelope.meta?.paymentPhase ?? "SETTLEMENT";
+
   const invoice = await upsertPaidInvoiceFromPayment({
     userId: envelope.userId,
     bookingId: envelope.bookingId,
@@ -50,12 +52,23 @@ export async function processPaymentCompletedMessage(rawPayload) {
     currency: envelope.billCurrency ?? envelope.currency,
     breakdown: envelope.breakdown ?? null,
     billingName: "Customer",
+    paymentPhase: phase,
+    paymentAmount: envelope.amount,
+    billTotalAmount: envelope.totalAmount,
+    settlementSnapshot: envelope.meta?.settlement ?? null,
   });
 
   log.info(
-    { status: "invoice_upserted", invoiceId: invoice.id },
+    { status: "invoice_upserted", invoiceId: invoice.id, phase },
     "Invoice created from payment.completed envelope",
   );
+
+  const msg =
+    phase === "PREPAY"
+      ? "Your prepayment receipt is ready"
+      : phase === "EXTENSION"
+        ? "Your extension payment receipt is ready"
+        : "Your trip settlement invoice is ready";
 
   await publishBookingNotify({
     eventType: "INVOICE_GENERATED",
@@ -63,10 +76,12 @@ export async function processPaymentCompletedMessage(rawPayload) {
     bookingId: envelope.bookingId,
     paymentId: envelope.paymentId,
     invoiceId: invoice.id,
-    totalAmount: envelope.totalAmount,
+    totalAmount: envelope.amount,
+    billTotal: envelope.totalAmount,
+    paymentPhase: phase,
     currency: envelope.billCurrency ?? envelope.currency,
     correlationId: envelope.correlationId,
-    message: "Your invoice has been generated",
+    message: msg,
     dedupeKey: `invoice:${invoice.id}:generated`,
   });
 
